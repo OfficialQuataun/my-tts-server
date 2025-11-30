@@ -1,45 +1,63 @@
-import express from "express";
-import { WebSocketServer } from "ws";
-import cors from "cors";
+const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
+const axios = require("axios");
+const cors = require("cors");
 
 const app = express();
 app.use(express.json());
-app.use(cors()); // optional if needed
+app.use(cors());
 
-// Root route
-app.get("/", (req, res) => res.send("WebSocket TTS server running"));
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-// Create HTTP server
-const server = app.listen(8080, () => console.log("Server running on port 8080"));
+// STORE CONNECTED CLIENTS
+let clients = [];
 
-// Create WebSocket server
-const wss = new WebSocketServer({ server });
+// On websocket connection
+wss.on("connection", (ws) => {
+  clients.push(ws);
 
-// Broadcast function
-function broadcast(data) {
-  wss.clients.forEach(client => {
-    if (client.readyState === 1) {
-      client.send(JSON.stringify(data));
-    }
+  ws.on("close", () => {
+    clients = clients.filter(c => c !== ws);
   });
+});
+
+// Receive donation POST from Roblox
+app.post("/donation", async (req, res) => {
+  const donation = req.body;
+
+  // Generate TTS MP3
+  const ttsURL = await generateTTS(
+    `${donation.Username} donated ${donation.Amount} Robux via Developer Donate. ${donation.Message}`
+  );
+
+  donation.TTS = ttsURL; // Attach the MP3 URL
+
+  // Broadcast to overlay clients
+  clients.forEach(ws => {
+    ws.send(JSON.stringify(donation));
+  });
+
+  res.json({ status: "ok" });
+});
+
+// FREE TTS API (returns MP3 URL)
+async function generateTTS(text) {
+  try {
+    const response = await axios.post(
+      "https://api.streamelements.com/kappa/v2/speech",
+      {
+        voice: "Brian",
+        text: text
+      }
+    );
+    return response.data.speak_url; // URL to MP3
+  } catch (err) {
+    console.error("TTS API Error:", err);
+    return null;
+  }
 }
 
-// WebSocket connection
-wss.on("connection", (ws) => {
-  console.log("Client connected");
-});
-
-// POST donations from Roblox
-app.post("/donation", (req, res) => {
-  const { UserId, Username, Amount, Message } = req.body;
-
-  if (!UserId || !Username || !Amount) {
-    return res.status(400).json({ error: "Missing fields" });
-  }
-
-  // Broadcast to all connected overlays
-  broadcast({ UserId, Username, Amount, Message });
-  console.log(`Donation posted: ${Username} -> ${Amount} Robux`);
-
-  res.status(200).json({ success: true });
-});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log("Server running on port", PORT));
