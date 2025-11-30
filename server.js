@@ -1,43 +1,45 @@
 import express from "express";
 import { WebSocketServer } from "ws";
-import bodyParser from "body-parser";
+import cors from "cors";
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
+app.use(cors()); // optional if needed
 
-const PORT = process.env.PORT || 8080;
-const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Root route
+app.get("/", (req, res) => res.send("WebSocket TTS server running"));
 
+// Create HTTP server
+const server = app.listen(8080, () => console.log("Server running on port 8080"));
+
+// Create WebSocket server
 const wss = new WebSocketServer({ server });
 
-// Keep track of last broadcast per user to prevent duplicates
-const lastBroadcast = {};
-
-// Broadcast donation to all connected clients
+// Broadcast function
 function broadcast(data) {
   wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(JSON.stringify(data));
+    if (client.readyState === 1) {
+      client.send(JSON.stringify(data));
+    }
   });
 }
 
-// Donation POST endpoint
+// WebSocket connection
+wss.on("connection", (ws) => {
+  console.log("Client connected");
+});
+
+// POST donations from Roblox
 app.post("/donation", (req, res) => {
-  const data = req.body;
+  const { UserId, Username, Amount, Message } = req.body;
 
-  // Ensure required fields
-  if (!data.UserId || !data.Username || !data.Amount) return res.status(400).send({status:"ignored"});
+  if (!UserId || !Username || !Amount) {
+    return res.status(400).json({ error: "Missing fields" });
+  }
 
-  // Convert UserId and Amount to number
-  data.UserId = Number(data.UserId);
-  data.Amount = Number(data.Amount);
+  // Broadcast to all connected overlays
+  broadcast({ UserId, Username, Amount, Message });
+  console.log(`Donation posted: ${Username} -> ${Amount} Robux`);
 
-  // Prevent duplicates (if needed)
-  const key = `${data.UserId}-${data.Amount}-${data.Message}`;
-  if (lastBroadcast[key]) return res.status(200).send({status:"ignored"});
-  lastBroadcast[key] = true;
-
-  console.log("Donation received:", data);
-  broadcast(data);
-
-  res.send({ status: "ok" });
+  res.status(200).json({ success: true });
 });
