@@ -1,34 +1,43 @@
-const express = require("express");
-const http = require("http");
-const WebSocket = require("ws");
-const cors = require("cors");
+import express from "express";
+import { WebSocketServer } from "ws";
+import bodyParser from "body-parser";
 
 const app = express();
-app.use(express.json());
-app.use(cors());
+app.use(bodyParser.json());
 
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const PORT = process.env.PORT || 8080;
+const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-let clients = [];
+const wss = new WebSocketServer({ server });
 
-wss.on("connection", ws => {
-  clients.push(ws);
-  ws.on("close", () => (clients = clients.filter(c => c !== ws)));
-});
+// Keep track of last broadcast per user to prevent duplicates
+const lastBroadcast = {};
 
+// Broadcast donation to all connected clients
+function broadcast(data) {
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(JSON.stringify(data));
+  });
+}
+
+// Donation POST endpoint
 app.post("/donation", (req, res) => {
-  const donation = req.body;
+  const data = req.body;
 
-  if (!donation.Username || !donation.Amount) {
-    return res.status(400).json({ error: "Missing fields" });
-  }
+  // Ensure required fields
+  if (!data.UserId || !data.Username || !data.Amount) return res.status(400).send({status:"ignored"});
 
-  // Broadcast to all overlays
-  clients.forEach(ws => ws.send(JSON.stringify(donation)));
+  // Convert UserId and Amount to number
+  data.UserId = Number(data.UserId);
+  data.Amount = Number(data.Amount);
 
-  res.json({ status: "ok" });
+  // Prevent duplicates (if needed)
+  const key = `${data.UserId}-${data.Amount}-${data.Message}`;
+  if (lastBroadcast[key]) return res.status(200).send({status:"ignored"});
+  lastBroadcast[key] = true;
+
+  console.log("Donation received:", data);
+  broadcast(data);
+
+  res.send({ status: "ok" });
 });
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log("Server running on port", PORT));
