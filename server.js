@@ -24,13 +24,3 @@ app.post("/donation", (req, res) => {
   broadcast(data);
   res.send({ status: "ok" });
 });
-
-// Optional: send test messages every 30 seconds
-setInterval(() => {
-  broadcast({
-    UserId: 0,
-    Username: "TestUser",
-    Amount: Math.floor(Math.random() * 100),
-    Message: "Test donation"
-  });
-}, 30000);
